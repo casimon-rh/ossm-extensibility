@@ -1,0 +1,127 @@
+apiVersion: template.openshift.io/v1
+kind: Template
+labels:
+  template: response-template
+metadata:
+  annotations:
+    description:  HTTP request and response service.
+    iconClass: icon-openshift
+  labels:
+    template: response-template
+  name: response-template
+objects:
+
+- apiVersion: v1
+  kind: Service
+  metadata:
+    name: response
+    labels:
+      app: response
+      service: response
+  spec:
+    ports:
+    - port: 5000
+      name: http
+    selector:
+      app: response
+
+- apiVersion: apps/v1
+  kind: Deployment
+  metadata:
+    name: response
+    labels:
+      app: response
+      version: v1
+  spec:
+    replicas: 1
+    selector:
+      matchLabels:
+        app: response
+        version: v1
+    template:
+      metadata:
+        annotations:
+          sidecar.istio.io/inject: "true"
+        labels:
+          app: response
+          version: v1
+      spec:
+        containers:
+        - name: response
+          image: quay.io/casimon/response:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+          - containerPort: 5000
+        volumes:
+        - name: tmp
+          emptyDir: {}
+
+- apiVersion: networking.istio.io/v1beta1
+  kind: VirtualService
+  metadata:
+    name: response-gateway
+  spec:
+    hosts:
+    - response
+    http:
+    - route:
+      - destination:
+          host: response
+          subset: v1
+
+- apiVersion: networking.istio.io/v1beta1
+  kind: DestinationRule
+  metadata:
+    name: response
+  spec:
+    host: response
+    subsets:
+    - name: v1
+      labels:
+        version: v1
+
+##################################################################################################
+# Ingress gateway
+##################################################################################################
+
+- apiVersion: networking.istio.io/v1beta1
+  kind: Gateway
+  metadata:
+    name: response-gateway
+  spec:
+    selector:
+      istio: ingressgateway
+    servers:
+    - port:
+        number: 80
+        name: http
+        protocol: HTTP
+      hosts:
+      - ${RESPONSE_ROUTE}
+
+- apiVersion: networking.istio.io/v1beta1
+  kind: VirtualService
+  metadata:
+    name: response
+  spec:
+    hosts:
+    - ${RESPONSE_ROUTE}
+    gateways:
+    - response-gateway
+    http:
+    - route:
+      - destination:
+          host: response
+          port:
+            number: 5000
+
+###############################################################################
+# Parameters
+###############################################################################
+
+parameters:
+
+- description: Route URL for external access to response service
+  name: RESPONSE_ROUTE
+  displayName: Route URL for external access to response service
+  required: true
